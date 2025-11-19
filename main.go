@@ -6,6 +6,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"strings"
 	"strconv"
+	"time"
+	"os"
 )
 
 func ScrapePrice(targetURL string, selector string) (float64, error) {
@@ -18,9 +20,14 @@ func ScrapePrice(targetURL string, selector string) (float64, error) {
 	}
 	
 	// set User-Agent header to mimic a browser
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+    req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+    req.Header.Set("Connection", "keep-alive")
 	resp, err := client.Do(req)
-
+	if err != nil {
+        return 0, fmt.Errorf("error executing request: %w", err)
+    }
 
 	// connection resources are released after the function finishes
 	defer resp.Body.Close()
@@ -44,7 +51,10 @@ func ScrapePrice(targetURL string, selector string) (float64, error) {
 	}
 
 	// extract and print text content
-	rawPriceText := selection.First().Text()
+	rawPriceText, exists := selection.First().Attr("data-value")
+	if !exists {
+		return 0, fmt.Errorf("data-value attribute not found in the selected element")
+	}
 
 	// only num
 	cleanedPriceText := strings.TrimSpace(rawPriceText)
@@ -58,15 +68,40 @@ func ScrapePrice(targetURL string, selector string) (float64, error) {
 	return price, nil
 }
 
+func LogPrice(price float64) error {
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	dataLine := fmt.Sprintf("%s,%.2f\n", timestamp, price)
+
+	file, err := os.OpenFile("prices.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("error opening log file: %s", err)
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(dataLine); err != nil {
+		return fmt.Errorf("error writing to log file: %s", err)
+	}
+	return nil
+
+}
+
 func main() {
-	targetURL := "https://www.newegg.com/seagate-expansion-26tb-black-usb-3-0/p/N82E16822185116?Item=N82E16822185116&cm_sp=Homepage_SS-_-P2_22-185-116-_-11192025"
-	selector := "div.price-current"
+	targetURL := "https://finance.yahoo.com/markets/crypto/all/"
+	selector := `fin-streamer[data-symbol="BTC-USD"]`
+	//scrape
 	price, err := ScrapePrice(targetURL, selector)
 	if err != nil {
 		fmt.Printf("Error scraping price: %s\n", err)
 		return
 	}
 	fmt.Printf("The scraped price is: $%.2f\n", price)
+
+	//log
+	if err := LogPrice(price); err != nil {
+		fmt.Printf("Error logging price: %s\n", err)
+		return
+	}
+	fmt.Println("Price logged successfully to prices.csv")
 	
 
 }
